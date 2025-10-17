@@ -1,0 +1,43 @@
+Metadata-Version: 2.3
+Name: ida-settings
+Version: 3.0.0
+Summary: Fetch configuration values for IDA Pro plugins
+Author: Willi Ballenthin
+Author-email: Willi Ballenthin <wballenthin@hex-rays.com>
+Requires-Dist: ida-hcli>=0.12.1
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+
+# ida-settings
+
+ida-settings is a Python library used by IDA Pro plugins to fetch configuration values from the shared settings infrastructure.
+
+During plugin installation, [hcli](https://hcli.docs.hex-rays.com/) prompts users for the configuration values and stores them in `ida-config.json`.
+Subsequently, users can invoke hcli (or later, the IDA Pro GUI) to update their configuration.
+This is the library that plugins use to fetch the configuration values.
+
+For example, within an IDA Pro plugin:
+
+```py
+import ida_settings
+
+api_key = ida_settings.get_current_plugin_setting("openai_key")
+```
+
+### API reference
+
+```
+def get_current_plugin_setting(key: str) -> str | bool
+```
+
+Fetch the setting value identified by `key`, raising `KeyError` if its not found.
+This setting should be declared in the current plugin's `ida-plugin.json` file.
+
+Changing of configuration values should be done via hcli (or later, the IDA Pro GUI).
+Plugins shouldn't have to do this themselves - but open an issue for discussion if you think otherwise.
+
+
+### Notes
+
+- this library relies on the IDA Pro's specific plugin environment to identify the current plugin; therefore, this library doesn't work outside of IDA Pro.
+- plugins shouldn't try to reach into `ida-config.json` themselves, because in the future, we may introduce cascading settings, a la VS Code.

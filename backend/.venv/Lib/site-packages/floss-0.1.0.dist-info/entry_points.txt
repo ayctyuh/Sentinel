@@ -1,0 +1,2 @@
+[console_scripts]
+floss = floss.core.cli.main:main

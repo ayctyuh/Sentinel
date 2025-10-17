@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Dict, Optional
@@ -8,6 +9,8 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -349,6 +352,14 @@ class AppWindow(QMainWindow):
         layout.setContentsMargins(16, 12, 16, 16)
         layout.setSpacing(12)
 
+        header_row = QHBoxLayout()
+        header_row.addStretch(1)
+        self.expand_result_btn = QPushButton("Phóng to")
+        self.expand_result_btn.setObjectName("ExpandButton")
+        self.expand_result_btn.clicked.connect(self._open_result_dialog)
+        header_row.addWidget(self.expand_result_btn)
+        layout.addLayout(header_row)
+
         self.result_output = QPlainTextEdit()
         self.result_output.setReadOnly(True)
         self.result_output.setPlaceholderText("Kết quả mới nhất sẽ hiển thị tại đây…")
@@ -526,6 +537,18 @@ class AppWindow(QMainWindow):
                 background: #2d2e4e;
                 color: #9799bf;
             }
+            QPushButton#ExpandButton {
+                background: transparent;
+                border: 1px solid #3a3b5a;
+                color: #cfd2ff;
+                padding: 6px 16px;
+                border-radius: 14px;
+                font-size: 10pt;
+            }
+            QPushButton#ExpandButton:hover {
+                border-color: #5560ff;
+                color: white;
+            }
             QCheckBox {
                 padding: 6px 0;
                 font-size: 11.5pt;
@@ -603,14 +626,19 @@ class AppWindow(QMainWindow):
             options["floss"] = "true"
         if self.file_opt_pestudio.isChecked():
             options["pestudio"] = "true"
-
-        job = self.uploader.upload_file(value, options)
         filename = os.path.basename(value)
         self._start_loading_animation(f"Đang quét tệp {filename}")
+        try:
+            job = self.uploader.upload_file(value, options)
+        except RuntimeError as exc:
+            self._stop_loading_animation()
+            self._warn(str(exc))
+            return
+
         self._append_activity(f"[{job.job_id}] Khởi chạy quét tệp: {filename}")
         if options:
             self._append_activity(f"Tùy chọn: {self._format_option_labels(options)}")
-        QTimer.singleShot(450, lambda j=job: self._show_result(j))
+        QTimer.singleShot(100, lambda j=job: self._show_result(j))
 
     def _start_folder_scan(self) -> None:
         root_path = self.folder_root_input.text().strip()
@@ -652,13 +680,19 @@ class AppWindow(QMainWindow):
         if getattr(self, "hash_opt_pestudio", None) and self.hash_opt_pestudio.isChecked():
             options["pestudio"] = "true"
 
-        job = self.uploader.scan_by_hash(value, options)
         display_hash = value if len(value) <= 18 else f"{value[:8]}…{value[-6:]}"
         self._start_loading_animation(f"Đang tra cứu hash {display_hash}")
+        try:
+            job = self.uploader.scan_by_hash(value, options)
+        except RuntimeError as exc:
+            self._stop_loading_animation()
+            self._warn(str(exc))
+            return
+
         self._append_activity(f"[{job.job_id}] Quét theo hash: {value}")
         if options:
             self._append_activity(f"Tùy chọn: {self._format_option_labels(options)}")
-        QTimer.singleShot(450, lambda j=job: self._show_result(j))
+        QTimer.singleShot(100, lambda j=job: self._show_result(j))
         if hasattr(self, "hash_input"):
             self.hash_input.clear()
 
@@ -729,9 +763,18 @@ class AppWindow(QMainWindow):
         self._stop_loading_animation()
         timestamp = time.strftime("%H:%M:%S")
         header = f"[{timestamp}] {job.job_id} • {job.mode.upper()} • {job.target}"
-        content = job.result or "Chưa có kết quả cho job này."
-        self.result_output.setPlainText(f"{header}\n{content}")
+        if getattr(job, "payload", None):
+            content = json.dumps(job.payload, ensure_ascii=False, indent=2)
+        else:
+            content = job.result or "Chưa có kết quả cho job này."
+        parts = [header, content]
+        if job.result_file:
+            parts.append(f"Tải báo cáo: {job.result_file}")
+        self.result_output.setPlainText("\n".join(parts))
         self._scroll_plain_text(self.result_output)
+        result_file = getattr(job, "result_file", "")
+        if result_file:
+            self._append_activity(f"[{job.job_id}] Tải JSON: {result_file}")
 
     @staticmethod
     def _scroll_plain_text(widget: QPlainTextEdit) -> None:
@@ -765,3 +808,21 @@ class AppWindow(QMainWindow):
 
     def _warn(self, text: str) -> None:
         QMessageBox.warning(self, "Thiếu thông tin", text)
+
+    def _open_result_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Kết quả quét chi tiết")
+        dialog.resize(720, 520)
+        layout = QVBoxLayout(dialog)
+
+        viewer = QPlainTextEdit(dialog)
+        viewer.setReadOnly(True)
+        viewer.setPlainText(self.result_output.toPlainText())
+        layout.addWidget(viewer)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+
+        dialog.exec_()
